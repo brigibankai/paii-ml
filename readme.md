@@ -1,9 +1,9 @@
-Moonlite Systems
+PAII Systems
 =================
 
 Purpose
 -------
-Moonlite Systems is a lightweight, local-first vector search tool that ingests
+PAII Systems is a lightweight, local-first vector search tool that ingests
 text (including PDFs), embeds content, stores embeddings in FAISS, and provides
 a simple CLI and programmatic API for searching similar passages. The project
 supports both local (sentence-transformers) and remote (OpenAI) embeddings via
@@ -30,14 +30,31 @@ High-level logic flow
 4. Search: embed query -> run FAISS search -> map indices to metadata -> score
    & return results.
 
+Inference Providers (modular)
+-----------------------------
+This project keeps inference strictly modular so you can swap LLM backends
+without changing the retrieval or storage layers. Three provider types are
+supported (and extensible):
+
+- **OpenAI**: Use the OpenAI API for generation and chat-style completions.
+- **Deepseek**: Call a Deepseek-compatible JSON API (adapter included).
+- **Local**: Run a small local model (e.g. `distilgpt2` or other HF causal LMs)
+  via the `transformers` pipeline for offline / privacy-preserving inference.
+
+You can toggle providers via environment variables or CLI flags (examples:
+`--llm-provider openai|deepseek|local` and `--provider local|openai` for
+embeddings). The `paii/llm.py` adapter provides a single `LLMModel`
+interface so `PAIISystem` can call `generate(prompt, ...)` regardless of
+the underlying provider.
+
 Recommended repository layout
 ----------------------------
 - `README.md` — this file.
 - `pyproject.toml` / `requirements.txt` — dependency and packaging information.
 - `LICENSE` and `.gitignore`.
-- `src/moonlite/` — package source code
+- `src/paii/` — package source code
   - `__init__.py` — package exports and version
-  - `app.py` — `MoonliteSystem` orchestration (public API: `add`, `ingest_pdf`,
+  - `app.py` — `PAIISystem` orchestration (public API: `add`, `ingest_pdf`,
     `search`).
   - `cli.py` — CLI entrypoint (prefer `typer` or `argparse`), parses flags and
     delegates to `app`.
@@ -60,23 +77,23 @@ Recommended repository layout
 
 Per-file responsibilities (brief)
 --------------------------------
-- `src/moonlite/app.py`: Compose components, validate inputs, and expose the
+- `src/paii/app.py`: Compose components, validate inputs, and expose the
   programmatic API used by the CLI and tests. Handles high-level operations
   (ingest, add, search) and error reporting.
-- `src/moonlite/cli.py`: Minimal command-line interface that maps flags to the
+- `src/paii/cli.py`: Minimal command-line interface that maps flags to the
   `app` API and handles environment variables for provider configuration.
-- `src/moonlite/embeddings.py`: Abstraction for embeddings providers. Each
+- `src/paii/embeddings.py`: Abstraction for embeddings providers. Each
   provider must return a NumPy `np.float32` array with shape `(N, dim)`.
   Implement batching, retries, and OpenAI key validation here.
-- `src/moonlite/db.py`: Encapsulate FAISS logic and metadata mapping. Ensure
+- `src/paii/db.py`: Encapsulate FAISS logic and metadata mapping. Ensure
   atomic writes, validate vector shapes, and provide clear `Result` objects
   containing `text`, `score`, and `metadata`.
-- `src/moonlite/pdf.py`: Extract text with `PyMuPDF` (`fitz`), chunk into
+- `src/paii/pdf.py`: Extract text with `PyMuPDF` (`fitz`), chunk into
   paragraphs/sentences with overlap, and return items ready for embedding and
   indexing.
-- `src/moonlite/utils.py`: Reusable helpers for chunking, cleaning, vector
+- `src/paii/utils.py`: Reusable helpers for chunking, cleaning, vector
   normalization, and scoring conversions (distance -> similarity).
-- `src/moonlite/config.py`: Centralized defaults and environment-driven
+- `src/paii/config.py`: Centralized defaults and environment-driven
   overrides for model names, index paths, and other runtime configuration.
 
 Data format recommendations
@@ -107,26 +124,26 @@ pip install -r requirements.txt
 Ingest a PDF using local embeddings:
 
 ```bash
-python -m src.moonlite.cli --pdf examples/sample.pdf --provider local
+python -m src.paii.cli --pdf examples/sample.pdf --provider local
 ```
 
 Query the index:
 
 ```bash
-python -m src.moonlite.cli --query "What is the main idea of chapter 2?" --top-k 5
+python -m src.paii.cli --query "What is the main idea of chapter 2?" --top-k 5
 ```
 
 Migration notes (from current project)
 -------------------------------------
 - Replace the newline-joined `text_data.txt` with `text_data.jsonl` to preserve
   metadata and enable robust deduplication and provenance tracking.
-- Consolidate duplicated code in `moonlite.py` and `moonlite2.py` into the
-  package structure under `src/moonlite/`.
+- Consolidate duplicated code in `paii.py` and `paii2.py` into the
+  package structure under `src/paii/`.
 - Validate and enforce embedding shapes/dtypes before adding to FAISS.
 
 Next steps I can take
 ---------------------
-- Scaffold the `src/moonlite/` package and implement core modules
+- Scaffold the `src/paii/` package and implement core modules
   (`embeddings.py`, `db.py`, `pdf.py`, `cli.py`).
 - Add unit tests and a minimal `pyproject.toml` / `requirements.txt`.
 

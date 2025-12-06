@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paii-systems"
+version = "0.1.0"
+description = "Local-first vector search tool with support for local and OpenAI embeddings"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "Developer", email = "dev@example.com"}
+]
+
+dependencies = [
+    "numpy>=1.21.0",
+    "faiss-cpu>=1.7.0",
+    "sentence-transformers>=2.2.0",
+    "PyMuPDF>=1.22.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "flake8>=6.0",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+paii = "paii.cli:main"
+
+[tool.setuptools]
+packages = ["paii"]
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
