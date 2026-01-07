@@ -1,157 +1,87 @@
-"""
-PDF extraction and chunking utilities.
-"""
-
 import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import hashlib
+
+from paii.utils import chunk_by_paragraphs, clean_text
 
 logger = logging.getLogger(__name__)
 
 
 class PdfProcessor:
-    """Extract and chunk text from PDF files."""
-    
+    """Extract and chunk text from PDF files with paragraph-aware chunks."""
+
     def __init__(self, chunk_size: int = 500, chunk_overlap: int = 50):
-        """
-        Initialize PDF processor.
-        
-        Parameters
-        ----------
-        chunk_size : int
-            Target chunk size in characters.
-        chunk_overlap : int
-            Overlap between consecutive chunks in characters.
-        """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-    
-    def extract_text(self, pdf_path: str) -> str:
-        """
-        Extract text from PDF file.
-        
-        Parameters
-        ----------
-        pdf_path : str
-            Path to PDF file.
-        
-        Returns
-        -------
-        str
-            Extracted text from all pages.
-        
-        Raises
-        ------
-        FileNotFoundError
-            If PDF does not exist.
-        ImportError
-            If PyMuPDF is not installed.
-        """
+
+    def extract_text_pages(self, pdf_path: str) -> List[str]:
         try:
             import fitz
         except ImportError:
             raise ImportError("PyMuPDF not installed. Run: pip install PyMuPDF")
-        
+
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
-        
+
         logger.info(f"Extracting text from {pdf_path}")
-        
         try:
             doc = fitz.open(str(pdf_path))
-            text_pages = []
-            
-            for page_num, page in enumerate(doc, 1):
-                text = page.get_text("text")
-                text_pages.append(text)
-            
-            text = "\n".join(text_pages)
+            pages = [page.get_text("text") for page in doc]
             doc.close()
-            
-            logger.info(f"Extracted {len(text)} characters from {len(text_pages)} pages")
-            return text.strip()
-        
+            logger.info(f"Extracted text from {len(pages)} pages")
+            return pages
         except Exception as e:
             logger.error(f"Failed to extract PDF: {e}")
             raise
-    
-    def chunk_text(self, text: str) -> List[Dict[str, Any]]:
-        """
-        Split text into chunks with metadata.
-        
-        Parameters
-        ----------
-        text : str
-            Text to chunk.
-        
-        Returns
-        -------
-        List[Dict[str, Any]]
-            List of chunks with structure: {
-                "text": str,
-                "chunk_id": int,
-                "start_char": int,
-                "end_char": int
-            }
-        """
-        text = text.strip()
-        if not text:
+
+    def chunk_page(self, text: str, page_num: int) -> List[Dict[str, Any]]:
+        # Preserve paragraph separators for paragraph-aware chunking.
+        if not text or not text.strip():
             return []
-        
-        chunks = []
-        start = 0
-        chunk_id = 0
-        
-        while start < len(text):
-            end = min(start + self.chunk_size, len(text))
-            chunk_text = text[start:end].strip()
-            
-            if chunk_text:
-                chunks.append({
-                    "text": chunk_text,
-                    "chunk_id": chunk_id,
-                    "start_char": start,
-                    "end_char": end
-                })
-                chunk_id += 1
-            
-            # Move start with overlap
-            start = end - self.chunk_overlap if end < len(text) else len(text)
-        
-        logger.info(f"Chunked {len(text)} characters into {len(chunks)} chunks")
+
+        # Normalize line endings but keep paragraph breaks (empty line)
+        import re
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+        chunks: List[Dict[str, Any]] = []
+        char_cursor = 0
+        for cid, p in enumerate(paras):
+            start = text.find(p, char_cursor)
+            if start == -1:
+                start = char_cursor
+            end = start + len(p)
+            char_cursor = end
+
+            chunks.append({
+                "text": p,
+                "chunk_id": cid,
+                "start_char": start,
+                "end_char": end,
+                "page": page_num,
+            })
+
+        logger.debug(f"Chunked page {page_num} into {len(chunks)} chunks")
         return chunks
-    
+
     def process(self, pdf_path: str, source_name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Extract text from PDF and return chunks with metadata.
-        
-        Parameters
-        ----------
-        pdf_path : str
-            Path to PDF file.
-        source_name : Optional[str]
-            Human-readable name for the source (default: filename).
-        
-        Returns
-        -------
-        List[Dict[str, Any]]
-            List of chunks ready for embedding, each with:
-            {
-                "text": str,
-                "source": str,
-                "chunk_id": int,
-                "start_char": int,
-                "end_char": int
-            }
-        """
-        text = self.extract_text(pdf_path)
-        chunks = self.chunk_text(text)
-        
+        pages = self.extract_text_pages(pdf_path)
+
         if source_name is None:
             source_name = Path(pdf_path).name
-        
-        # Add source metadata
+
+        all_chunks: List[Dict[str, Any]] = []
+        for page_idx, page_text in enumerate(pages, start=1):
+            page_chunks = self.chunk_page(page_text, page_idx)
+            for c in page_chunks:
+                # Add provenance and text hash
+                c["source"] = source_name
+                c["text_hash"] = hashlib.sha256(c["text"].encode("utf-8")).hexdigest()
+                all_chunks.append(c)
+
+        logger.info(f"Processed {len(all_chunks)} chunks from {len(pages)} pages")
+        return all_chunks
         for chunk in chunks:
             chunk["source"] = source_name
         
